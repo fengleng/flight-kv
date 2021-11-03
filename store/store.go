@@ -62,16 +62,13 @@ func (k KVKind) String() string {
 
 // Config flight-kv的Config
 type Config struct {
-	ClientTLS *ClientTLSConfig
-	TLS       *tls.Config
-
+	ClientTLS         *ClientTLSConfig
+	TLS               *tls.Config
 	ConnectionTimeout time.Duration
 	PersistConnect    bool
-
-	Bucket string
-
-	UserName string
-	PassWord string
+	Bucket            string
+	UserName          string
+	PassWord          string
 }
 
 type ClientTLSConfig struct {
@@ -134,16 +131,16 @@ type FlightKv interface {
 	Close()
 }
 
-// LockOptions contains optional request parameters
-type LockOptions struct {
-	Value     []byte        // Optional, value to associate with the lock
-	TTL       time.Duration // Optional, expiration ttl associated with the lock
-	RenewLock chan struct{} // Optional, chan used to control and stop the session ttl renewal for the lock
-}
-
 // Locker provides locking mechanism on top of the store.
 // Similar to `sync.Lock` except it may return errors.
 type Locker interface {
 	Lock(stopChan chan struct{}) (<-chan struct{}, error)
 	Unlock() error
+}
+
+// LockOptions contains optional request parameters
+type LockOptions struct {
+	Value     []byte        // Optional, value to associate with the lock
+	TTL       time.Duration // Optional, expiration ttl associated with the lock
+	RenewLock chan struct{} // Optional, chan used to control and stop the session ttl renewal for the lock
 }
