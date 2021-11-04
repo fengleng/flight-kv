@@ -1,4 +1,4 @@
-package libkv
+package flightKv
 
 import (
 	"fmt"

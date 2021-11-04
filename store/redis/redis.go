@@ -3,14 +3,21 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"github.com/fengleng/flightKv"
 	"strconv"
 	"time"
 
-	"github.com/fengleng/flight-kv/store"
+	"github.com/fengleng/flightKv/store"
 	"github.com/go-redis/redis/v8"
 	"github.com/pingcap/errors"
 	//"github.com/smallnest/rpcx/log"
 )
+
+// Register registers Redis to valkeyrie
+func Register() {
+	flightKv.AddStore(store.REDIS, New)
+
+}
 
 var (
 	// ErrMultipleEndpointsUnsupported is thrown when there are
