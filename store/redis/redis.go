@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"time"
@@ -50,7 +51,7 @@ func New(endpoints []string, options *store.Config) (store.FlightKv, error) {
 		}
 		dbIndex = tmp
 	}
-
+	return newRedis(endpoints, password, dbIndex)
 }
 
 func newRedis(endpoints []string, password string, dbIndex int) (*Redis, error) {
@@ -69,18 +70,17 @@ func newRedis(endpoints []string, password string, dbIndex int) (*Redis, error) 
 
 	return &Redis{
 		client: client,
-		script: redis.NewScript(luaScript()),
-		codec:  defaultCodec{},
+		codec:  jsonCodec{},
 	}, nil
 }
 
-type defaultCodec struct{}
+type jsonCodec struct{}
 
-func (c json) encode(kv *store.KVPair) (string, error) {
+func (c jsonCodec) encode(kv *store.KVPair) (string, error) {
 	b, err := json.Marshal(kv)
 	return string(b), err
 }
 
-func (c defaultCodec) decode(b string, kv *store.KVPair) error {
+func (c jsonCodec) decode(b string, kv *store.KVPair) error {
 	return json.Unmarshal([]byte(b), kv)
 }
