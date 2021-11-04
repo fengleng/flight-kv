@@ -39,7 +39,7 @@ type Redis struct {
 	codec  jsonCodec
 }
 
-func New(endpoints []string, options *store.Config) (store.FlightKv, error) {
+func New(endpoints []string, options *store.Config) (*Redis, error) {
 	var password string
 	var dbIndex = 0
 	if options != nil && options.TLS != nil {
@@ -58,7 +58,7 @@ func New(endpoints []string, options *store.Config) (store.FlightKv, error) {
 		}
 		dbIndex = tmp
 	}
-	return nil, nil
+	return newRedis(endpoints, password, dbIndex)
 }
 
 func newRedis(endpoints []string, password string, dbIndex int) (*Redis, error) {
