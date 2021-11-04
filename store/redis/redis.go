@@ -58,7 +58,7 @@ func New(endpoints []string, options *store.Config) (store.FlightKv, error) {
 		}
 		dbIndex = tmp
 	}
-	return newRedis(endpoints, password, dbIndex)
+	return nil, nil
 }
 
 func newRedis(endpoints []string, password string, dbIndex int) (*Redis, error) {
