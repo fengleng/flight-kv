@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fengleng/flight-kv/store"
+	"github.com/fengleng/flightKv/store"
 )
 
 // Initialize creates a new Store object, initializing the client

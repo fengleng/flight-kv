@@ -79,8 +79,8 @@ type ClientTLSConfig struct {
 
 type KVPair struct {
 	Key       string
-	Value     string
-	LastIndex string
+	Value     []byte
+	LastIndex uint64
 }
 
 // WriteOptions contains optional request parameters
