@@ -22,7 +22,7 @@ func Register() {
 
 var (
 	// ErrMultipleEndpointsUnsupported is thrown when there are
-	// multiple endpoints specified for Redis
+	// multiple endpoints specified for *Redis
 	ErrMultipleEndpointsUnsupported = errors.New("redis: does not support multiple endpoints")
 
 	// ErrTLSUnsupported is thrown when tls config is given
@@ -53,7 +53,7 @@ func (r *Redis) setTTL(key string, kv *store.KVPair, ttl time.Duration) error {
 	return r.client.Set(context.Background(), key, val, ttl).Err()
 }
 
-func (r Redis) Put(key string, value []byte, options *store.WriteOptions) error {
+func (r *Redis) Put(key string, value []byte, options *store.WriteOptions) error {
 	var ttl = NoExpiration
 	if options != nil && options.TTL != 0 {
 		ttl = options.TTL
@@ -66,7 +66,7 @@ func (r Redis) Put(key string, value []byte, options *store.WriteOptions) error 
 	}, ttl)
 }
 
-func (r Redis) Get(key string) (*store.KVPair, error) {
+func (r *Redis) Get(key string) (*store.KVPair, error) {
 	return r.get(normalize(key))
 }
 
@@ -82,11 +82,11 @@ func (r *Redis) get(key string) (*store.KVPair, error) {
 	return &kv, nil
 }
 
-func (r Redis) Delete(key string) error {
+func (r *Redis) Delete(key string) error {
 	return r.client.Del(context.Background(), normalize(key)).Err()
 }
 
-func (r Redis) Exists(key string) (bool, error) {
+func (r *Redis) Exists(key string) (bool, error) {
 	i, err := r.client.Exists(context.Background(), normalize(key)).Result()
 	if err != nil {
 		return false, errors.Trace(err)
@@ -94,7 +94,7 @@ func (r Redis) Exists(key string) (bool, error) {
 	return i == 1, nil
 }
 
-func (r Redis) Watch(key string, stopCh <-chan struct{}) (<-chan *store.KVPair, error) {
+func (r *Redis) Watch(key string, stopCh <-chan struct{}) (<-chan *store.KVPair, error) {
 	var watchCh = make(chan *store.KVPair)
 	nKey := normalize(key)
 
@@ -166,7 +166,7 @@ func watchLoop(msgChan <-chan *redis.Message, stopCh <-chan struct{}, get getter
 	}
 }
 
-func (r Redis) WatchTree(directory string, stopCh <-chan struct{}) (<-chan []*store.KVPair, error) {
+func (r *Redis) WatchTree(directory string, stopCh <-chan struct{}) (<-chan []*store.KVPair, error) {
 	watchCh := make(chan []*store.KVPair)
 	nKey := normalize(directory)
 
@@ -201,12 +201,12 @@ func (r Redis) WatchTree(directory string, stopCh <-chan struct{}) (<-chan []*st
 	return watchCh, nil
 }
 
-func (r Redis) NewLock(key string, options *store.LockOptions) (store.Locker, error) {
+func (r *Redis) NewLock(key string, options *store.LockOptions) (store.Locker, error) {
 	panic("implement me")
 }
 
-func (r Redis) List(directory string) ([]*store.KVPair, error) {
-	panic("implement me")
+func (r *Redis) List(directory string) ([]*store.KVPair, error) {
+	return r.list(normalize(directory))
 }
 
 func (r *Redis) list(directory string) ([]*store.KVPair, error) {
@@ -279,19 +279,19 @@ func (r *Redis) mGet(directory string, allKeys ...string) ([]*store.KVPair, erro
 	return pair, nil
 }
 
-func (r Redis) DeleteTree(directory string) error {
+func (r *Redis) DeleteTree(directory string) error {
 	panic("implement me")
 }
 
-func (r Redis) AtomicPut(key string, value []byte, previous *store.KVPair, options *store.WriteOptions) (bool, *store.KVPair, error) {
+func (r *Redis) AtomicPut(key string, value []byte, previous *store.KVPair, options *store.WriteOptions) (bool, *store.KVPair, error) {
 	panic("implement me")
 }
 
-func (r Redis) AtomicDelete(key string, previous *store.KVPair) (bool, error) {
+func (r *Redis) AtomicDelete(key string, previous *store.KVPair) (bool, error) {
 	panic("implement me")
 }
 
-func (r Redis) Close() {
+func (r *Redis) Close() {
 	panic("implement me")
 }
 
