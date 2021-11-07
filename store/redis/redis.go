@@ -7,6 +7,7 @@ import (
 	"github.com/fengleng/flightKv"
 	"github.com/fengleng/log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fengleng/flightKv/store"
@@ -38,6 +39,7 @@ var (
 type Redis struct {
 	client *redis.Client
 	codec  jsonCodec
+	script *redis.Script
 }
 
 const (
@@ -201,8 +203,142 @@ func (r *Redis) WatchTree(directory string, stopCh <-chan struct{}) (<-chan []*s
 	return watchCh, nil
 }
 
+type redisLock struct {
+	redis    *Redis
+	last     *store.KVPair
+	unlockCh chan struct{}
+
+	key   string
+	value []byte
+	ttl   time.Duration
+}
+
+// NewLock creates a lock for a given key.
+// The returned Locker is not held and must be acquired
+// with `.Lock`. The Value is optional.
 func (r *Redis) NewLock(key string, options *store.LockOptions) (store.Locker, error) {
-	panic("implement me")
+	var (
+		value []byte
+		ttl   = DefaultLookTTL
+	)
+
+	if options != nil && options.TTL != 0 {
+		ttl = options.TTL
+	}
+	if options != nil && len(options.Value) != 0 {
+		value = options.Value
+	}
+
+	return &redisLock{
+		redis:    r,
+		last:     nil,
+		key:      key,
+		value:    value,
+		ttl:      ttl,
+		unlockCh: make(chan struct{}),
+	}, nil
+}
+
+func (l *redisLock) Lock(stopCh chan struct{}) (<-chan struct{}, error) {
+	lockHeld := make(chan struct{})
+
+	success, err := l.tryLock(lockHeld, stopCh)
+	if err != nil {
+		return nil, err
+	}
+	if success {
+		return lockHeld, nil
+	}
+
+	// wait for changes on the key
+	watch, err := l.redis.Watch(l.key, stopCh)
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		select {
+		case <-stopCh:
+			return nil, ErrAbortTryLock
+		case <-watch:
+			success, err := l.tryLock(lockHeld, stopCh)
+			if err != nil {
+				return nil, err
+			}
+			if success {
+				return lockHeld, nil
+			}
+		}
+	}
+}
+
+// tryLock return true, nil when it acquired and hold the lock
+// and return false, nil when it can't lock now,
+// and return false, err if any unespected error happened underlying
+func (l *redisLock) tryLock(lockHeld, stopChan chan struct{}) (bool, error) {
+	success, newPair, err := l.redis.AtomicPut(
+		l.key,
+		l.value,
+		l.last,
+		&store.WriteOptions{
+			TTL: l.ttl,
+		})
+	if success {
+		l.last = newPair
+		// keep holding
+		go l.holdLock(lockHeld, stopChan)
+		return true, nil
+	}
+	if err != nil && (err == store.ErrKeyNotFound || err == store.ErrKeyModified || err == store.ErrKeyExists) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (l *redisLock) holdLock(lockHeld, stopChan chan struct{}) {
+	defer close(lockHeld)
+
+	hold := func() error {
+		_, newPair, err := l.redis.AtomicPut(
+			l.key,
+			l.value,
+			l.last,
+			&store.WriteOptions{
+				TTL: l.ttl,
+			})
+		if err == nil {
+			l.last = newPair
+		}
+		return err
+	}
+
+	heartbeat := time.NewTicker(l.ttl / 3)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-heartbeat.C:
+			if err := hold(); err != nil {
+				return
+			}
+		case <-l.unlockCh:
+			return
+		case <-stopChan:
+			return
+		}
+	}
+}
+
+func (l *redisLock) Unlock() error {
+	l.unlockCh <- struct{}{}
+
+	_, err := l.redis.AtomicDelete(l.key, l.last)
+	if err != nil {
+		return err
+	}
+	l.last = nil
+
+	return nil
 }
 
 func (r *Redis) List(directory string) ([]*store.KVPair, error) {
@@ -280,19 +416,114 @@ func (r *Redis) mGet(directory string, allKeys ...string) ([]*store.KVPair, erro
 }
 
 func (r *Redis) DeleteTree(directory string) error {
-	panic("implement me")
+	nKey := fmt.Sprintf("%s*", normalize(directory))
+	keys, err := r.Keys(nKey)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	return r.client.Del(context.Background(), keys...).Err()
 }
 
 func (r *Redis) AtomicPut(key string, value []byte, previous *store.KVPair, options *store.WriteOptions) (bool, *store.KVPair, error) {
-	panic("implement me")
+	var ttl = NoExpiration
+	if options != nil && options.TTL != 0 {
+		ttl = options.TTL
+	}
+	nKey := normalize(key)
+	newValue := &store.KVPair{
+		Key:       key,
+		Value:     value,
+		LastIndex: sequenceNum(),
+	}
+	if previous == nil {
+		if err := r.setNX(nKey, newValue, ttl); err != nil {
+			return false, nil, err
+		}
+		return true, newValue, nil
+	}
+
+	if err := r.cas(
+		nKey,
+		previous,
+		newValue,
+		fmt.Sprintf("%d", ttl/time.Second),
+	); err != nil {
+		return false, nil, err
+	}
+	return true, newValue, nil
+}
+
+func (r *Redis) cas(key string, old, new *store.KVPair, secInStr string) error {
+	newVal, err := r.codec.encode(new)
+	if err != nil {
+		return err
+	}
+
+	oldVal, err := r.codec.encode(old)
+	if err != nil {
+		return err
+	}
+
+	return r.runScript(
+		cmdCAS,
+		key,
+		oldVal,
+		newVal,
+		secInStr,
+	)
+}
+
+func (r *Redis) setNX(key string, val *store.KVPair, expirationAfter time.Duration) error {
+	valBlob, err := r.codec.encode(val)
+	if err != nil {
+		return err
+	}
+
+	if !r.client.SetNX(context.Background(), key, valBlob, expirationAfter).Val() {
+		return store.ErrKeyExists
+	}
+	return nil
+}
+
+func (r *Redis) runScript(args ...interface{}) error {
+	err := r.script.Run(
+		context.Background(),
+		r.client,
+		nil,
+		args...,
+	).Err()
+	if err != nil && strings.Contains(err.Error(), "redis: key is not found") {
+		return store.ErrKeyNotFound
+	}
+	if err != nil && strings.Contains(err.Error(), "redis: value has been changed") {
+		return store.ErrKeyModified
+	}
+	return err
+}
+
+func (r *Redis) cad(key string, old *store.KVPair) error {
+	oldVal, err := r.codec.encode(old)
+	if err != nil {
+		return err
+	}
+
+	return r.runScript(
+		cmdCAD,
+		key,
+		oldVal,
+	)
 }
 
 func (r *Redis) AtomicDelete(key string, previous *store.KVPair) (bool, error) {
-	panic("implement me")
+	if err := r.cad(normalize(key), previous); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *Redis) Close() {
-	panic("implement me")
+	_ = r.client.Close()
 }
 
 func New(endpoints []string, options *store.Config) (store.FlightKv, error) {
@@ -334,6 +565,7 @@ func newRedis(endpoints []string, password string, dbIndex int) (*Redis, error) 
 	return &Redis{
 		client: client,
 		codec:  jsonCodec{},
+		script: redis.NewScript(luaScript()),
 	}, nil
 }
 
