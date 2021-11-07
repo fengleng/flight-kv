@@ -73,10 +73,15 @@ func (r *Redis) Get(key string) (*store.KVPair, error) {
 }
 
 func (r *Redis) get(key string) (*store.KVPair, error) {
-	val := r.client.Get(context.Background(), key).Val()
-
+	val, err := r.client.Get(context.Background(), key).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, store.ErrKeyNotFound
+		}
+		return nil, errors.Trace(err)
+	}
 	var kv store.KVPair
-	err := r.codec.decode(val, &kv)
+	err = r.codec.decode(val, &kv)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -370,9 +375,9 @@ func (r *Redis) Keys(reg string) ([]string, error) {
 		return nil, errors.Trace(err)
 	}
 	allKeys = append(allKeys, curKeys...)
-	if nextCurSor != defaultCursor {
-		r.client.Scan(context.Background(), nextCurSor, reg, defaultConst)
-		curKeys, nextCurSor, err = r.client.Scan(context.Background(), defaultCursor, reg, defaultConst).Result()
+	for nextCurSor != defaultCursor {
+		//r.client.Scan(context.Background(), nextCurSor, reg, defaultConst)
+		curKeys, nextCurSor, err = r.client.Scan(context.Background(), nextCurSor, reg, defaultConst).Result()
 		if err != nil {
 			return nil, errors.Trace(err)
 		}

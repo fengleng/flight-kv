@@ -89,6 +89,7 @@ func RunTestTTL(t *testing.T, kv store.FlightKv, backup store.FlightKv) {
 func testPutGetDeleteExists(t *testing.T, kv store.FlightKv) {
 	// Get a not exist key should return ErrKeyNotFound
 	pair, err := kv.Get("testPutGetDelete_not_exist_key")
+	//errors.
 	assert.Equal(t, store.ErrKeyNotFound, err)
 
 	value := []byte("bar")
